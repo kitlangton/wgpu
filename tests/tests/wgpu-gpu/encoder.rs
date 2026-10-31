@@ -11,8 +11,70 @@ pub fn all_tests(vec: &mut Vec<GpuTestInitializer>) {
         DROP_QUEUE_BEFORE_CREATING_COMMAND_ENCODER,
         DROP_ENCODER_AFTER_ERROR,
         ENCODER_OPERATIONS_FAIL_WHILE_PASS_ALIVE,
+        EMPTY_COMMAND_BUFFERS,
+        DEBUG_MARKERS_ONLY,
     ]);
 }
+
+/// More empty command buffers than the Metal backend allows in flight
+/// (`MAX_COMMAND_BUFFERS`), submitted, dropped unsubmitted, and dropped
+/// unfinished. None of these may count against the limit once it is gone.
+#[apply(gpu_test!)]
+static EMPTY_COMMAND_BUFFERS: GpuTestConfiguration = GpuTestConfiguration::new()
+    .parameters(TestParameters::default().enable_noop())
+    .run_sync(|ctx| {
+        let encoder = || {
+            ctx.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("empty"),
+                })
+        };
+        for _ in 0..5000 {
+            ctx.queue.submit([encoder().finish()]);
+        }
+        for _ in 0..5000 {
+            drop(encoder().finish());
+        }
+        for _ in 0..5000 {
+            drop(encoder());
+        }
+
+        // An empty buffer next to one with work must not take the work's place.
+        let mut work = encoder();
+        work.clear_buffer(
+            &ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 4,
+                usage: wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            0,
+            None,
+        );
+        ctx.queue
+            .submit([encoder().finish(), work.finish(), encoder().finish()]);
+        ctx.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+    });
+
+/// An encoder that only records debug markers still produces a command buffer
+/// that can be submitted and completes.
+#[apply(gpu_test!)]
+static DEBUG_MARKERS_ONLY: GpuTestConfiguration = GpuTestConfiguration::new()
+    .parameters(TestParameters::default().enable_noop())
+    .run_sync(|ctx| {
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        encoder.push_debug_group("group");
+        encoder.insert_debug_marker("marker");
+        encoder.pop_debug_group();
+        ctx.queue.submit([encoder.finish()]);
+        ctx.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+    });
 
 #[apply(gpu_test!)]
 static DROP_ENCODER: GpuTestConfiguration = GpuTestConfiguration::new()

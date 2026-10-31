@@ -749,18 +749,21 @@ impl crate::Queue for Queue {
                     fence_sync.1.notify_all();
                 });
 
-                let raw = match command_buffers.last() {
-                    Some(&cmd_buf) => cmd_buf.raw.clone(),
+                let last = command_buffers.iter().rev().find_map(|b| b.raw.as_ref());
+                let raw = match last {
+                    Some(raw) => raw.clone(),
                     None => {
                         // We do not bother adjusting `command_buffer_created_not_submitted`
                         // because we immediately commit this buffer.
-                        self.shared
+                        let raw = self
+                            .shared
                             .raw
                             .commandBufferWithUnretainedReferences()
-                            .ok_or(crate::DeviceError::Lost)?
+                            .ok_or(crate::DeviceError::Lost)?;
+                        raw.setLabel(Some(ns_string!("(wgpu internal) Signal")));
+                        raw
                     }
                 };
-                raw.setLabel(Some(ns_string!("(wgpu internal) Signal")));
                 unsafe { raw.addCompletedHandler(block2::RcBlock::as_ptr(&block)) };
 
                 signal_fence.maintain();
@@ -783,14 +786,14 @@ impl crate::Queue for Queue {
                 }
 
                 // only return an extra one if it's extra
-                match command_buffers.last() {
+                match last {
                     Some(_) => None,
                     None => Some(raw),
                 }
             };
 
-            for cmd_buffer in command_buffers {
-                cmd_buffer.raw.commit();
+            for raw in command_buffers.iter().filter_map(|b| b.raw.as_ref()) {
+                raw.commit();
                 // One command buffer per `end_encoding` call moves from the
                 // "created but not yet submitted" bucket into the submitted
                 // set, so update the counter.
@@ -1369,9 +1372,20 @@ pub struct CommandEncoder {
     shared: Arc<AdapterShared>,
     queue_shared: Arc<QueueShared>,
     raw_cmd_buf: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+    /// Set between `begin_encoding` and `end_encoding` or `discard_encoding`.
+    /// `raw_cmd_buf` is created from it on first use.
+    recording: Option<Recording>,
+    /// The label for `raw_cmd_buf`, kept across encodings to reuse its allocation.
+    label: String,
     state: CommandState,
     temp: Temp,
     counters: Arc<wgt::HalCounters>,
+}
+
+#[derive(Debug)]
+struct Recording {
+    has_label: bool,
+    relay_wait: Option<u64>,
 }
 
 impl fmt::Debug for CommandEncoder {
@@ -1387,7 +1401,8 @@ unsafe impl Sync for CommandEncoder {}
 
 #[derive(Debug)]
 pub struct CommandBuffer {
-    raw: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    /// `None` if nothing was recorded.
+    raw: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
     queue_shared: Arc<QueueShared>,
 }
 

@@ -338,6 +338,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 #### Metal
 
 - A render pipeline switch no longer allocates once per vertex buffer. By @samoylenkodmitry in [#10630](https://github.com/gfx-rs/wgpu/pull/10630).
+- A command encoder that records no Metal commands no longer creates or commits a Metal command buffer. `wgpu-core` makes several such encoders for each submit and present, so a frame that submits one render pass and presents now commits three command buffers instead of six. `wgpu_hal::metal::CommandEncoder::raw_command_buffer` now takes `&mut self` and creates the buffer if needed. By @kitlangton in [#NNNNN](https://github.com/gfx-rs/wgpu/pull/NNNNN).
 
 ### Documentation
 

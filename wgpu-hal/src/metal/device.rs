@@ -1,4 +1,4 @@
-use alloc::{borrow::ToOwned as _, sync::Arc, vec::Vec};
+use alloc::{borrow::ToOwned as _, string::String, sync::Arc, vec::Vec};
 use core::{mem::align_of, ptr::NonNull, sync::atomic};
 
 use bytemuck::TransparentWrapper;
@@ -877,6 +877,8 @@ impl crate::Device for super::Device {
             shared: Arc::clone(&self.shared),
             queue_shared: Arc::clone(&desc.queue.shared),
             raw_cmd_buf: None,
+            recording: None,
+            label: String::new(),
             state: super::CommandState::default(),
             temp: super::Temp::default(),
             counters: Arc::clone(&self.counters),
