@@ -182,6 +182,9 @@ impl Queue {
                     texture.full_range.clone(),
                     wgt::TextureUses::PRESENT,
                 )
+                // `PRESENT` is not an ordered usage on any backend, so the tracker
+                // reports `PRESENT -> PRESENT` for a texture that is already there.
+                .filter(|pending| pending.usage.from != pending.usage.to)
                 .collect();
             pending
         };
